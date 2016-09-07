@@ -101,19 +101,14 @@ func getInsights(a []interface{}) []map[string]interface{} {
 func getJsonlLines(a []interface{}) []string {
 	var result []string
 
-	for _, v := range a {
-		ad := dproxy.New(v)
-		insights, err := ad.M("insights").M("data").A(0).Map()
+	for _, insights := range getInsights(a) {
+		bytes, err := json.Marshal(insights)
 
-		if err == nil {
-			bytes, err := json.Marshal(insights)
-
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			result = append(result, string(bytes))
+		if err != nil {
+			log.Fatal(err)
 		}
+
+		result = append(result, string(bytes))
 	}
 
 	return result
