@@ -9,10 +9,160 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/koron/go-dproxy"
 )
+
+type InsightsSlice []map[string]interface{}
+
+func (is InsightsSlice) Len() int {
+	return len(is)
+}
+
+func (is InsightsSlice) Swap(i, j int) {
+	is[i], is[j] = is[j], is[i]
+}
+
+type ByFloat64 struct {
+	InsightsSlice
+	key string
+}
+
+func (bf ByFloat64) Less(i, j int) bool {
+	var a, b float64
+	var err error
+
+	switch bf.InsightsSlice[i][bf.key].(type) {
+	case float64:
+		a = bf.InsightsSlice[i][bf.key].(float64)
+		b = bf.InsightsSlice[j][bf.key].(float64)
+	case string:
+		a, err = strconv.ParseFloat(bf.InsightsSlice[i][bf.key].(string), 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		b, err = strconv.ParseFloat(bf.InsightsSlice[j][bf.key].(string), 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	return a < b
+}
+
+func getInsights(a []interface{}) []map[string]interface{} {
+	var result []map[string]interface{}
+
+	for _, v := range a {
+		ad := dproxy.New(v)
+
+		insights, err := ad.M("insights").M("data").A(0).Map()
+		if err != nil {
+			continue
+		}
+
+		row := make(map[string]interface{})
+
+		for k, v := range insights {
+			switch v.(type) {
+			case map[string]interface{}:
+				row[k] = fmt.Sprintf("%v", v.(map[string]interface{}))
+			case string:
+				f, err := strconv.ParseFloat(v.(string), 64)
+				if err != nil {
+					row[k] = v
+					continue
+				}
+
+				row[k] = f
+			case float64:
+				row[k] = v.(float64)
+			default:
+				row[k] = v
+			}
+		}
+
+		result = append(result, row)
+	}
+
+	return result
+}
+
+func getJsonlLines(insights []map[string]interface{}) []string {
+	var result []string
+
+	for _, insight := range insights {
+		bytes, err := json.Marshal(insight)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		result = append(result, string(bytes))
+	}
+
+	return result
+}
+
+func printAsJsonl(insights []map[string]interface{}) {
+	for _, json := range getJsonlLines(insights) {
+		fmt.Println(json)
+	}
+}
+
+func printAsJson(insights []map[string]interface{}) {
+	fmt.Println("[")
+
+	jsonlLines := getJsonlLines(insights)
+
+	for i, json := range jsonlLines {
+		fmt.Print("  ")
+		fmt.Print(json)
+
+		if i != len(jsonlLines)-1 {
+			fmt.Print(",")
+		}
+
+		fmt.Print("\n")
+	}
+
+	fmt.Println("]")
+}
+
+func printAsCsv(insights []map[string]interface{}, keys []string, sep string) {
+	for _, insight := range insights {
+		var row []string
+
+		for _, key := range keys {
+			switch insight[key].(type) {
+			case []interface{}:
+				bytes, err := json.Marshal(insight[key])
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				row = append(row, string(bytes))
+			case float64:
+				if key == "ad_id" {
+					row = append(row, fmt.Sprintf("%d", int(insight[key].(float64))))
+					continue
+				}
+
+				row = append(row, fmt.Sprintf("%v", insight[key]))
+			case nil:
+				row = append(row, "")
+			default:
+				row = append(row, fmt.Sprintf("%v", insight[key]))
+			}
+		}
+
+		fmt.Println(strings.Join(row, sep))
+	}
+}
 
 func main() {
 	var (
@@ -23,6 +173,8 @@ func main() {
 		colsep      string
 		token       string
 		api_version string
+		sort_key    string
+		sort_order  string
 	)
 
 	flag.StringVar(&act, "act", "", "Ad account ID")
@@ -31,6 +183,8 @@ func main() {
 	flag.StringVar(&fields, "fields", "ad_id,ad_name,impressions,inline_link_clicks,spend", "Insights fields")
 	flag.StringVar(&colsep, "colsep", ",", "Column separator(only for CSV format)")
 	flag.StringVar(&api_version, "api_version", "v2.7", "Marketing API version")
+	flag.StringVar(&sort_key, "sort_key", "", "Sort key")
+	flag.StringVar(&sort_order, "sort_order", "asc", "Sort order")
 	flag.Parse()
 
 	if colsep == "\\t" {
@@ -70,83 +224,23 @@ func main() {
 		log.Fatal(err)
 	}
 
+	insights := getInsights(a)
+
+	keys := strings.Split(fields, ",")
+	if sort_key != "" {
+		if sort_order == "desc" {
+			sort.Sort(sort.Reverse(ByFloat64{insights, sort_key}))
+		} else {
+			sort.Sort(ByFloat64{insights, sort_key})
+		}
+	}
+
 	if format == "json" {
-		printAsJson(a)
+		printAsJson(insights)
 	} else if format == "csv" {
-		keys := strings.Split(fields, ",")
 		fmt.Println(strings.Join(keys, colsep))
-		printAsCsv(a, keys, colsep)
+		printAsCsv(insights, keys, colsep)
 	} else {
-		printAsJsonl(a)
-	}
-}
-
-func getInsights(a []interface{}) []map[string]interface{} {
-	var result []map[string]interface{}
-
-	for _, v := range a {
-		ad := dproxy.New(v)
-		insights, err := ad.M("insights").M("data").A(0).Map()
-
-		if err != nil {
-			continue
-		}
-
-		result = append(result, insights)
-	}
-
-	return result
-}
-
-func getJsonlLines(a []interface{}) []string {
-	var result []string
-
-	for _, insights := range getInsights(a) {
-		bytes, err := json.Marshal(insights)
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		result = append(result, string(bytes))
-	}
-
-	return result
-}
-
-func printAsJsonl(a []interface{}) {
-	for _, json := range getJsonlLines(a) {
-		fmt.Println(json)
-	}
-}
-
-func printAsJson(a []interface{}) {
-	fmt.Println("[")
-
-	jsonlLines := getJsonlLines(a)
-
-	for i, json := range jsonlLines {
-		fmt.Print("  ")
-		fmt.Print(json)
-
-		if i != len(jsonlLines)-1 {
-			fmt.Print(",")
-		}
-
-		fmt.Print("\n")
-	}
-
-	fmt.Println("]")
-}
-
-func printAsCsv(a []interface{}, keys []string, sep string) {
-	for _, insights := range getInsights(a) {
-		var row []string
-
-		for _, key := range keys {
-			row = append(row, fmt.Sprintf("%v", insights[key]))
-		}
-
-		fmt.Println(strings.Join(row, sep))
+		printAsJsonl(insights)
 	}
 }
