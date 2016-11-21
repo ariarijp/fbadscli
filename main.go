@@ -54,7 +54,7 @@ func (bf ByFloat64) Less(i, j int) bool {
 	return a < b
 }
 
-func getInsights(a []interface{}) []map[string]interface{} {
+func getInsights(a []interface{}, action string, action_attribution_window string) []map[string]interface{} {
 	var result []map[string]interface{}
 
 	for _, v := range a {
@@ -69,6 +69,24 @@ func getInsights(a []interface{}) []map[string]interface{} {
 
 		for k, v := range insights {
 			switch v.(type) {
+			case []interface{}:
+				if k != "actions" {
+					row[k] = v
+					break
+				}
+
+				row[action] = 0.0
+
+				for _, v2 := range v.([]interface{}) {
+					actionType := v2.(map[string]interface{})["action_type"]
+
+					if actionType == action {
+						value := v2.(map[string]interface{})[action_attribution_window]
+						if value != nil {
+							row[action] = value.(float64)
+						}
+					}
+				}
 			case map[string]interface{}:
 				row[k] = fmt.Sprintf("%v", v.(map[string]interface{}))
 			case string:
@@ -169,17 +187,51 @@ func printAsCsv(insights []map[string]interface{}, keys []string, sep string) {
 	}
 }
 
+func buildRequest(token string, api_version string, act string, date_preset string, fields string, action string, action_attribution_window string) *http.Request {
+	if action != "" {
+		fields = fields + ",actions"
+	}
+
+	u, err := url.Parse("https://graph.facebook.com")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	u.Path = fmt.Sprintf("/%s/act_%s/ads", api_version, act)
+
+	q := u.Query()
+	if action != "" {
+		q.Set("fields", fmt.Sprintf("insights.date_preset(%s).action_attribution_windows(%s){%s}", date_preset, fields))
+	} else {
+		q.Set("fields", fmt.Sprintf("insights.date_preset(%s){%s}", date_preset, fields))
+	}
+
+	q.Set("limit", "200")
+	q.Set("access_token", token)
+
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return req
+}
+
 func main() {
 	var (
-		act         string
-		format      string
-		date_preset string
-		fields      string
-		colsep      string
-		token       string
-		api_version string
-		sort_key    string
-		sort_order  string
+		act                       string
+		format                    string
+		date_preset               string
+		fields                    string
+		colsep                    string
+		token                     string
+		api_version               string
+		sort_key                  string
+		sort_order                string
+		action                    string
+		action_attribution_window string
 	)
 
 	flag.StringVar(&act, "act", "", "Ad account ID")
@@ -190,6 +242,8 @@ func main() {
 	flag.StringVar(&api_version, "api_version", "v2.7", "Marketing API version")
 	flag.StringVar(&sort_key, "sort_key", "", "Sort key")
 	flag.StringVar(&sort_order, "sort_order", "asc", "Sort order")
+	flag.StringVar(&action, "action", "", "Action")
+	flag.StringVar(&action_attribution_window, "action_attribution_window", "1d_click", "Action attribution windows")
 	flag.Parse()
 
 	if colsep == "\\t" {
@@ -201,20 +255,7 @@ func main() {
 		log.Fatal("Access token is required. Please set your valid access token to FB_ACCESS_TOKEN environment variable.")
 	}
 
-	u, err := url.Parse("https://graph.facebook.com")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	u.Path = fmt.Sprintf("/%s/act_%s/ads", api_version, act)
-
-	q := u.Query()
-	q.Set("fields", fmt.Sprintf("insights.date_preset(%s){%s}", date_preset, fields))
-	q.Set("limit", "100")
-	q.Set("access_token", token)
-	u.RawQuery = q.Encode()
-
-	req, _ := http.NewRequest("GET", u.String(), nil)
+	req := buildRequest(token, api_version, act, date_preset, fields, action, action_attribution_window)
 
 	client := new(http.Client)
 	resp, _ := client.Do(req)
@@ -229,9 +270,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	insights := getInsights(a)
-
 	keys := strings.Split(fields, ",")
+	if action != "" {
+		keys = append(keys, action)
+	}
+
+	insights := getInsights(a, action, action_attribution_window)
+
 	if sort_key != "" {
 		if sort_order == "desc" {
 			sort.Sort(sort.Reverse(ByFloat64{insights, sort_key}))
