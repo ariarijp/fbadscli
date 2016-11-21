@@ -72,6 +72,11 @@ func getInsights(a []interface{}) []map[string]interface{} {
 			case map[string]interface{}:
 				row[k] = fmt.Sprintf("%v", v.(map[string]interface{}))
 			case string:
+				if k == "ad_id" {
+					row[k] = v
+					continue
+				}
+
 				f, err := strconv.ParseFloat(v.(string), 64)
 				if err != nil {
 					row[k] = v
