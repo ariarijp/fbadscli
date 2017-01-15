@@ -1,6 +1,6 @@
 # fbadscli
 
-Command line interface for Facebook Ads API.
+Command line interface for Facebook Marketing API.
 
 ## Usage
 
