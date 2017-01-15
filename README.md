@@ -1,11 +1,11 @@
 # fbadscli
 
-Command line interface for Facebook Ads Insights API.
+Command line interface for Facebook Ads API.
 
 ## Usage
 
 ```shell
-$ FB_ACCESS_TOKEN="YOUR_ACCESS_TOKEN" ./fbadscli -act AD_ACCOUNT_ID
+$ FB_ACCESS_TOKEN="YOUR_ACCESS_TOKEN" ./fbadscli sample.toml
 ```
 
 ### Environment Variables

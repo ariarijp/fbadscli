@@ -1,0 +1,7 @@
+EndpointURL = "https://graph.facebook.com/v2.8/me/adaccounts"
+Limit = 100
+Fields = [
+    "id",
+    "name",
+    "insights.date_preset(today).fields(impressions,inline_link_clicks,spend)",
+]

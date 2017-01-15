@@ -2,152 +2,85 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/koron/go-dproxy"
+	"github.com/BurntSushi/toml"
+	"github.com/bitly/go-simplejson"
 )
 
-type InsightsSlice []map[string]interface{}
-
-func (is InsightsSlice) Len() int {
-	return len(is)
-}
-
-func (is InsightsSlice) Swap(i, j int) {
-	is[i], is[j] = is[j], is[i]
-}
-
-type ByFloat64 struct {
-	InsightsSlice
-	key string
-}
-
-func (bf ByFloat64) Less(i, j int) bool {
-	var a, b float64
-	var err error
-
-	switch bf.InsightsSlice[i][bf.key].(type) {
-	case float64:
-		a = bf.InsightsSlice[i][bf.key].(float64)
-		b = bf.InsightsSlice[j][bf.key].(float64)
-	case string:
-		a, err = strconv.ParseFloat(bf.InsightsSlice[i][bf.key].(string), 64)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		b, err = strconv.ParseFloat(bf.InsightsSlice[j][bf.key].(string), 64)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	return a < b
+type Config struct {
+	EndpointURL string
+	Fields      []string
+	Limit       int
 }
 
 func main() {
-	var (
-		act                       string
-		format                    string
-		date_preset               string
-		fields                    string
-		colsep                    string
-		token                     string
-		api_version               string
-		sort_key                  string
-		sort_order                string
-		action                    string
-		action_attribution_window string
-	)
+	accessToken := os.Getenv("FB_ACCESS_TOKEN")
+	confFileName := os.Args[1]
 
-	flag.StringVar(&act, "act", "REQUIRED", "Ad account ID")
-	flag.StringVar(&format, "format", "jsonl", "Output format")
-	flag.StringVar(&date_preset, "date_preset", "this_month", "Date preset")
-	flag.StringVar(&fields, "fields", "ad_id,ad_name,impressions,inline_link_clicks,spend", "Insights fields")
-	flag.StringVar(&colsep, "colsep", ",", "Column separator(only for CSV format)")
-	flag.StringVar(&api_version, "api_version", "v2.7", "Marketing API version")
-	flag.StringVar(&sort_key, "sort_key", "OPTIONAL", "Sort key")
-	flag.StringVar(&sort_order, "sort_order", "asc", "Sort order")
-	flag.StringVar(&action, "action", "OPTIONAL", "Action")
-	flag.StringVar(&action_attribution_window, "action_attribution_window", "1d_click", "Action attribution windows")
-	flag.Parse()
-
-	if colsep == "\\t" {
-		colsep = "\t"
+	var conf Config
+	if _, err := toml.DecodeFile(confFileName, &conf); err != nil {
+		log.Fatal(err)
 	}
 
-	if act == "REQUIRED" {
-		log.Fatal("act is required.")
-	}
-	log.Fatal(sort_key)
-
-	token = os.Getenv("FB_ACCESS_TOKEN")
-	if token == "" {
-		log.Fatal("Access token is required. Please set your valid access token to FB_ACCESS_TOKEN environment variable.")
+	client := &http.Client{}
+	endpointUrl := conf.EndpointURL
+	req, err := http.NewRequest("GET", endpointUrl, nil)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	req := buildRequest(token, api_version, act, date_preset, fields, action, action_attribution_window)
+	values := url.Values{}
+	values.Add("fields", strings.Join(conf.Fields, ","))
+	values.Add("limit", strconv.Itoa(conf.Limit))
+	values.Add("access_token", accessToken)
+	req.URL.RawQuery = values.Encode()
 
 	for {
-		client := new(http.Client)
-		resp, _ := client.Do(req)
-		defer resp.Body.Close()
-
-		byteArray, _ := ioutil.ReadAll(resp.Body)
-		var v interface{}
-		json.Unmarshal(byteArray, &v)
-
-		a, err := dproxy.New(v).M("data").Array()
+		resp, err := client.Do(req)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		keys := strings.Split(fields, ",")
-		if action != "" {
-			keys = append(keys, action)
+		if resp.StatusCode != 200 {
+			bytes, _ := ioutil.ReadAll(resp.Body)
+			log.Fatal(string(bytes))
 		}
 
-		insights := getInsights(a, action, action_attribution_window)
+		bytes, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+		resp.Body.Close()
 
-		if sort_key != "OPTIONAL" {
-			if sort_order == "desc" {
-				sort.Sort(sort.Reverse(ByFloat64{insights, sort_key}))
-			} else {
-				sort.Sort(ByFloat64{insights, sort_key})
-			}
+		sj, err := simplejson.NewJson(bytes)
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		if format == "json" {
-			printAsJson(insights)
-		} else if format == "csv" {
-			fmt.Println(strings.Join(keys, colsep))
-			printAsCsv(insights, keys, colsep)
-		} else {
-			printAsJsonl(insights)
+		data, err := sj.Get("data").Array()
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		paging, _ := dproxy.New(v).M("paging").Map()
+		ts := time.Now().Format("2006-01-02T15:04:05-0700")
+		for _, d := range data {
+			d := d.(map[string]interface{})
+			d["timestamp"] = ts
+			jsonStr, _ := json.Marshal(d)
+			fmt.Println(string(jsonStr))
+		}
 
-		if next, ok := paging["next"]; ok {
-			u, err := url.Parse(next.(string))
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			req, err = http.NewRequest("GET", u.String(), nil)
-			if err != nil {
-				log.Fatal(err)
-			}
-		} else {
+		endpointUrl, _ = sj.Get("paging").Get("next").String()
+		if endpointUrl == "" {
 			break
 		}
 	}
