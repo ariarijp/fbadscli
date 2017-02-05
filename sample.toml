@@ -1,4 +1,4 @@
-EndpointURL = "https://graph.facebook.com/v2.8/me/adaccounts"
+EndpointURL = "/v2.8/me/adaccounts"
 Limit = 100
 Fields = [
     "id",

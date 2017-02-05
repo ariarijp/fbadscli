@@ -3,17 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/bitly/go-simplejson"
+	fb "github.com/huandu/facebook"
 )
 
 type Config struct {
@@ -31,56 +26,41 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client := &http.Client{}
-	endpointUrl := conf.EndpointURL
-	req, err := http.NewRequest("GET", endpointUrl, nil)
+	session := &fb.Session{}
+	session.SetAccessToken(accessToken)
+	err := session.Validate()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	values := url.Values{}
-	values.Add("fields", strings.Join(conf.Fields, ","))
-	values.Add("limit", strconv.Itoa(conf.Limit))
-	values.Add("access_token", accessToken)
-	req.URL.RawQuery = values.Encode()
+	endpointUrl := conf.EndpointURL
+	res, err := session.Get(endpointUrl, fb.Params{
+		"fields": strings.Join(conf.Fields, ","),
+		"limit":  conf.Limit,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	paging, err := res.Paging(session)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for {
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if resp.StatusCode != 200 {
-			bytes, _ := ioutil.ReadAll(resp.Body)
-			log.Fatal(string(bytes))
-		}
-
-		bytes, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatal(err)
-		}
-		resp.Body.Close()
-
-		sj, err := simplejson.NewJson(bytes)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		data, err := sj.Get("data").Array()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		ts := time.Now().Format("2006-01-02T15:04:05-0700")
-		for _, d := range data {
-			d := d.(map[string]interface{})
-			d["timestamp"] = ts
-			jsonStr, _ := json.Marshal(d)
+		for _, result := range paging.Data() {
+			jsonStr, err := json.Marshal(result)
+			if err != nil {
+				log.Fatal(err)
+			}
 			fmt.Println(string(jsonStr))
 		}
 
-		endpointUrl, _ = sj.Get("paging").Get("next").String()
-		if endpointUrl == "" {
+		noMore, err := paging.Next()
+		if err != nil {
+			log.Fatal(err)
+		}
+		if noMore {
 			break
 		}
 	}
