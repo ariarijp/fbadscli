@@ -15,6 +15,7 @@ type Config struct {
 	EndpointURL string
 	Fields      []string
 	Limit       int
+	Version	string
 }
 
 func main() {
@@ -28,6 +29,7 @@ func main() {
 
 	session := &fb.Session{}
 	session.SetAccessToken(accessToken)
+	session.Version = conf.Version
 	err := session.Validate()
 	if err != nil {
 		log.Fatal(err)

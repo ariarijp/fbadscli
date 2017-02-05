@@ -1,4 +1,5 @@
-EndpointURL = "/v2.8/me/adaccounts"
+Version = "v2.8"
+EndpointURL = "/me/adaccounts"
 Limit = 100
 Fields = [
     "id",
