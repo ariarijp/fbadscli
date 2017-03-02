@@ -1,8 +1,8 @@
 Version = "v2.8"
-EndpointURL = "/me/adaccounts"
-Limit = 100
+EndpointURL = "/me/accounts"
 Fields = [
     "id",
     "name",
-    "insights.date_preset(today).fields(impressions,inline_link_clicks,spend)",
 ]
+[Params]
+limit = 100

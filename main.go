@@ -11,18 +11,18 @@ import (
 	fb "github.com/huandu/facebook"
 )
 
-type Config struct {
+type config struct {
 	EndpointURL string
 	Fields      []string
-	Limit       int
-	Version	string
+	Params      map[string]interface{}
+	Version     string
 }
 
 func main() {
 	accessToken := os.Getenv("FB_ACCESS_TOKEN")
 	confFileName := os.Args[1]
 
-	var conf Config
+	var conf config
 	if _, err := toml.DecodeFile(confFileName, &conf); err != nil {
 		log.Fatal(err)
 	}
@@ -36,10 +36,16 @@ func main() {
 	}
 
 	endpointUrl := conf.EndpointURL
-	res, err := session.Get(endpointUrl, fb.Params{
-		"fields": strings.Join(conf.Fields, ","),
-		"limit":  conf.Limit,
-	})
+	params := fb.Params{}
+	if len(conf.Fields) > 0 {
+		params["fields"] = strings.Join(conf.Fields, ",")
+	}
+
+	for k, v := range conf.Params {
+		params[k] = v
+	}
+
+	res, err := session.Get(endpointUrl, params)
 	if err != nil {
 		log.Fatal(err)
 	}

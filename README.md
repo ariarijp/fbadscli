@@ -1,11 +1,11 @@
-# fbadscli
+# fbapicli
 
-Command line interface for Facebook Marketing API.
+Command line interface for Facebook API.
 
 ## Usage
 
 ```shell
-$ FB_ACCESS_TOKEN="YOUR_ACCESS_TOKEN" ./fbadscli sample.toml
+$ FB_ACCESS_TOKEN="YOUR_ACCESS_TOKEN" ./fbapicli sample.toml
 ```
 
 ### Environment Variables
