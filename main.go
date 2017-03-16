@@ -18,9 +18,28 @@ type config struct {
 	Version     string
 }
 
+func printDebugInfo(debugInfo *fb.DebugInfo) {
+	l := log.New(os.Stderr, "DEBUG ", log.LstdFlags)
+	l.Println("fb.DebugInfo.FacebookApiVersion:", debugInfo.FacebookApiVersion)
+	l.Println("fb.DebugInfo.FacebookDebug:", debugInfo.FacebookDebug)
+	l.Println("fb.DebugInfo.FacebookRev:", debugInfo.FacebookRev)
+	l.Println("fb.DebugInfo.Proto:", debugInfo.Proto)
+	for k, v := range debugInfo.Header {
+		l.Println("fb.DebugInfo.Header:", k, v)
+	}
+	for _, m := range debugInfo.Messages {
+		l.Println("fb.DebugInfo.Messages:", m.Type, m.Message, m.Link)
+	}
+}
+
 func main() {
 	accessToken := os.Getenv("FB_ACCESS_TOKEN")
 	confFileName := os.Args[1]
+
+	debugMode := os.Getenv("FB_DEBUG") != ""
+	if debugMode {
+		fb.Debug = fb.DEBUG_ALL
+	}
 
 	var conf config
 	if _, err := toml.DecodeFile(confFileName, &conf); err != nil {
@@ -46,6 +65,10 @@ func main() {
 	}
 
 	res, err := session.Get(endpointUrl, params)
+	if debugMode {
+		printDebugInfo(res.DebugInfo())
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}

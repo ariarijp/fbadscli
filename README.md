@@ -12,6 +12,8 @@ $ FB_ACCESS_TOKEN="YOUR_ACCESS_TOKEN" ./fbapicli sample.toml
 
 * `FB_ACCESS_TOKEN`(required)
   * Your access token
+* `FB_DEBUG`(optional)
+  * Enable debug mode
 
 ## License
 
